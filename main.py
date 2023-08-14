@@ -46,25 +46,6 @@ class Message(Base):
     timestamp = Column(DateTime, default=func.now())
 
 
-class Database:
-    def __init__(self, db_name="sqlite:///chat.db"):
-        self.engine = create_engine(db_name, echo=True)
-        Session = sessionmaker(bind=self.engine)
-        self.session = Session()
-        Base.metadata.create_all(self.engine)
-
-    def authenticate_user(self, username, password):
-        user = self.session.query(User).filter_by(username=username).one_or_none()
-        return user and check_password(password, user.password)
-
-
-    def store_message(self, sender, recipient, message, isread):
-        new_message = Message(sender=sender, recipient=recipient, message=message, isread=isread)
-        self.session.add(new_message)
-        self.session.commit()
-
-    # You would continue in this fashion for all methods...
-
 
 def is_valid_email(email: str) -> bool:
     """Check if the given string is a valid email format."""
@@ -164,19 +145,20 @@ class Database:
         return user and check_password(password, user.password)
 
     def fetch_chat_partners(self, username):
-        """Fetch distinct chat partners for a given username."""
-        self.cursor.execute("""
-            SELECT DISTINCT sender, recipient 
-            FROM messages 
-            WHERE sender=? OR recipient=?
-        """, (username, username))
-        results = self.cursor.fetchall()
+        """Fetch distinct chat partners for a given username using SQLAlchemy."""
 
+        # Query for messages where the user is either the sender or the recipient
+        messages_as_sender = self.session.query(Message.recipient).filter_by(sender=username).all()
+        messages_as_recipient = self.session.query(Message.sender).filter_by(recipient=username).all()
+
+        # Create a set to store unique chat partners
         chat_partners = set()
-        for row in results:
-            sender, recipient = row
-            partner = recipient if sender == username else sender
-            chat_partners.add(partner)
+
+        for row in messages_as_sender:
+            chat_partners.add(row.recipient)
+
+        for row in messages_as_recipient:
+            chat_partners.add(row.sender)
 
         return chat_partners
 
@@ -321,8 +303,9 @@ async def signin(sid, data):
         username = data.get('username')
         password = data.get('password')
         db = Database()
-
+        print('pass')
         if db.authenticate_user(username, password):  # Assuming `authenticate_user` checks the hashed password
+            print('pass2')
             token = generate_token(username)
             users_sockets[username] = {'sid': sid, 'token': token}
             print('send data')

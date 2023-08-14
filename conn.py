@@ -3,6 +3,7 @@ import json
 import requests
 
 HOST = '172.20.10.2'
+HOST = '192.168.1.11'
 PORT = 65432
 sio = socketio.Client()
 
