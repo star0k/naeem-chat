@@ -1,6 +1,8 @@
 import datetime
 import os
 import sqlite3
+
+import sqlalchemy
 from cryptography.fernet import Fernet
 import bcrypt
 import smtplib
@@ -12,10 +14,9 @@ from email.message import EmailMessage
 
 from aiohttp import web
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, Boolean, ForeignKey, func
-from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 
-Base = declarative_base()
+Base = sqlalchemy.orm.declarative_base()
 
 
 class User(Base):
@@ -51,15 +52,7 @@ def is_valid_email(email: str) -> bool:
     """Check if the given string is a valid email format."""
     return bool(re.match(r"[^@]+@[^@]+\.[^@]+", email))
 
-def email_exists(email: str, cursor) -> bool:
-    """Check if the email is already registered."""
-    cursor.execute("SELECT email FROM users WHERE email=?", (email,))
-    return bool(cursor.fetchone())
 
-def username_exists(username: str, cursor) -> bool:
-    """Check if the username is already registered."""
-    cursor.execute("SELECT username FROM users WHERE username=?", (username,))
-    return bool(cursor.fetchone())
 
 def generate_verification_code() -> str:
     """Generate a random 6-digit verification code."""
@@ -166,12 +159,29 @@ class Database:
         new_message = Message(sender=sender, recipient=recipient, message=message, isread=isread)
         self.session.add(new_message)
         self.session.commit()
+        return new_message.id
 
     def fetch_messages(self, username, date):
-        messages = self.session.query(Message).filter(
+        message_objects = self.session.query(Message).filter(
             (Message.recipient == username) | (Message.sender == username), Message.timestamp >= date
         ).all()
-        return [msg.__dict__ for msg in messages]
+
+        messages = []
+
+        for msg in message_objects:
+            data = {
+                'id': msg.id,
+                'sender': msg.sender,
+                'recipient': msg.recipient,
+                'message': msg.message,
+                'timestamp': msg.timestamp.strftime('%Y-%m-%d %H:%M:%S'),  # Convert datetime to string
+                'isread': msg.isread,
+                'isnotify': msg.isnotify
+                # Add any other fields from your Message model that you need
+            }
+            messages.append(data)
+
+        return messages
 
     def mark_message_delivered(self, message_id):
         message = self.session.query(Message).filter_by(id=message_id).one_or_none()
@@ -182,7 +192,7 @@ class Database:
     def mark_message_read(self, message_id):
         message = self.session.query(Message).filter_by(id=message_id).one_or_none()
         if message:
-            message.isread = 2
+            message.isread > 0
             self.session.commit()
 
     def register_user(self, username, hashed_password, email):
@@ -192,7 +202,24 @@ class Database:
 
     def user_data(self, username):
         user = self.session.query(User).filter_by(username=username).one_or_none()
-        return user.__dict__ if user else None
+
+        if not user:
+            return None
+
+        # Creating a dictionary with the required attributes
+        data = {
+            'username': user.username,
+            'bio': user.bio,
+            'iscompleted': user.iscompleted,
+            'interest_language': user.interest_language,
+            'fullname': user.fullname,
+            'email': user.email,
+            'profile_image': user.profile_image,
+            'isverified': user.isverified,
+            'native_language': user.native_language
+        }
+
+        return data
 
     def verify_email(self, username, verification_code):
         user = self.session.query(User).filter_by(username=username).one_or_none()
@@ -260,9 +287,40 @@ class Database:
         if message:
             message.isnotify = status
             self.session.commit()
+
+    def set_verification_code(self, username, verification_code):
+                """
+                Set the verification code for the specified user.
+
+                Args:
+                    username (str): The user's username.
+                    verification_code (str): The verification code to be set.
+
+                Returns:
+                    bool: True if successfully set, False otherwise.
+                """
+                user = self.session.query(User).filter_by(username=username).one_or_none()
+                if user:
+                    user.verification_code = verification_code
+                    self.session.commit()
+                    return True
+                return False
+
+    def get_email_by_username(self, username):
+                """
+                Fetch the email of a user by their username.
+
+                Args:
+                    username (str): The user's username.
+
+                Returns:
+                    str: The email of the user, or None if user not found.
+                """
+                user = self.session.query(User).filter_by(username=username).one_or_none()
+                return user.email if user else None
 # Server
 HOST = '172.20.10.2'
-HOST = '192.168.1.11'
+# HOST = '192.168.1.11'
 PORT = 65432
 sio = socketio.AsyncServer(cors_allowed_origins="*")
 app = web.Application()
@@ -399,23 +457,23 @@ async def fetch_messages(sid, data):
         user_data = users_sockets.get(username, {})
         if is_authenticated(sid, token, username):
             messages = db.fetch_messages(username, date)
-            for message in messages:
-                db.cursor.execute("""
-                    UPDATE messages 
-                    SET isnotify = isread
-                    WHERE id = ?
-                """, (int(message['id']),))
-                db.conn.commit()
             # List to keep track of senders whose messages were marked as delivered
             senders_notified = set()
-
-            # Mark these messages as delivered (isread = 1) only if the recipient is the user
+            await sio.emit("messages", {'retcode': 0, "data": messages}, to=sid)
+            print('sent data')
+            # Iterate through the messages
             for message in messages:
+
+                # Update the isnotify status
+                message_id = message['id']
+                db.update_message_notification_status(message_id, message['isread'])
+
+                # Mark these messages as delivered (isread = 1) only if the recipient is the user
                 if message["recipient"] == username and message["isread"] == 0:
-                    db.update_message_as_read(message["id"])  # Assuming you've added this method
+                    db.mark_message_delivered(message_id)
 
                     # If the sender is online and not yet notified, inform them that their message has been delivered
-                    try :
+                    try:
                         sender = message["sender"]
                         if sender not in senders_notified and sender in users_sockets:
                             senders_notified.add(sender)
@@ -426,12 +484,9 @@ async def fetch_messages(sid, data):
                                 'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                             }, to=sender_sid)
                     except:
-                        print('error in partner olnile')
+                        print('error in partner online')
 
-            await sio.emit("messages", {'retcode': 0, "data": messages}, to=sid)
-            print('sent data')
-        else:
-            await sio.emit("messages", {"retcode": 3, "message": "Authentication failed."}, to=sid)
+
     except Exception as e :
         print(e)
         await sio.emit("messages", {'retcode': 999, "message": f'e'}, to=sid)
@@ -444,10 +499,7 @@ async def read_conversation(sid, data):
         db = Database()
 
         if is_authenticated(sid, token, username):
-            # Update all messages where the user is the recipient and isread is not 2 to be marked as isread=2
-            db.cursor.execute("UPDATE messages SET isread=2 WHERE recipient=? AND sender=? AND isread!=2",
-                              (username, chat_partner))
-            db.conn.commit()
+            db.mark_message_read(username)
             # If the chat_partner is online, inform them that their messages have been seen
             if chat_partner in users_sockets:
                 chat_partner_sid = users_sockets[chat_partner]['sid']
@@ -456,6 +508,7 @@ async def read_conversation(sid, data):
                     'seen_by': username,
                     'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 }, to=chat_partner_sid)
+
         else:
             await sio.emit("chat-read", {"retcode": 3, "message": "Authentication failed."}, to=sid)
     except:
@@ -473,14 +526,11 @@ async def send_message(sid, data):
         db = Database()
         print('in send message')
         if is_authenticated(sid, token, username):
-            if not username_exists(chat_partner,db.cursor) :
+            if not db.username_exists(chat_partner) :
                 await sio.emit("send-message-response", {"retcode": 4, "message": "User Not Found."}, to=sid)
                 return
             # Store the message in the database
-            db.cursor.execute("INSERT INTO messages (sender, recipient, message, timestamp, isread) VALUES (?, ?, ?, ?, ?)",
-                              (username, chat_partner, message_text, timestamp, 0))
-            db.conn.commit()
-            message_id = db.cursor.lastrowid  # Get the ID of the recently inserted message
+            message_id = db.store_message(username,chat_partner,message_text,0)
 
             # If the chat partner is online, send the message to them immediately
             if chat_partner in users_sockets:
@@ -489,16 +539,16 @@ async def send_message(sid, data):
 
                 acknowledged = await sio.call("live", {
                     'action': 'new_message',
+                    'data' : {
                     'sender': username,
-                    'message_text': message_text,
+                    'message': message_text,
                     'timestamp': timestamp,
-                    'id': message_id
+                    'id': message_id}
                 }, to=chat_partner_sid, timeout=2)  # Await an acknowledgment for up to 2 seconds
 
                 if acknowledged and acknowledged.get('status') == 'received':
                     # Mark the message as read (isread = 2)
-                    db.cursor.execute("UPDATE messages SET isread=1 WHERE id=?", (message_id,))
-                    db.conn.commit()
+                    db.mark_message_delivered(message_id)
                     print('message marked as delivered')
                 await sio.emit("send-message-response", {'retcode': 1, "message": "Message processed."}, to=sid)
 
@@ -544,11 +594,13 @@ async def signup(sid, data):
 
         # Store in database
         db.insert_user(username, hashed_password, email, fullname, verification_code)
+        print('signed up')
+        await sio.emit("signup-response",
+                       {"retcode": 0, "message": "User registered. Please check email for verification code."}, to=sid)
 
         # Send verification code to email
-        send_email_verification(email, verification_code)
-        print('signed up')
-        await sio.emit("signup-response", {"retcode": 0 ,"message": "User registered. Please check email for verification code."}, to=sid)
+        if not 'test' in email :
+            send_email_verification(email, verification_code)
 
     except Exception as e:
         print(f'error {e}')
@@ -632,17 +684,20 @@ async def resend_verification_code(sid, data):
         if is_authenticated(sid, token, username):
 
             verification_code = generate_verification_code()
-            # Store in database
-            db.cursor.execute("UPDATE users SET verification_code=? WHERE username=?", (verification_code,username,))
-            db.conn.commit()
-            db.cursor.execute("SELECT email FROM users WHERE username=?", (username,))
-            email = db.cursor.fetchone()
-            print(email)
-            # Send verification code to email
-            send_email_verification(email, verification_code)
-            await sio.emit("code-request-response",
-                           {"retcode": 0, "message": "Code sent. Please check email for verification code."},
-                           to=sid)
+
+            # Set verification code using Database method
+            if db.set_verification_code(username, verification_code):
+
+                # Fetch email using Database method
+                email = db.get_email_by_username(username)
+                if email:
+                    print(email)
+
+                    # Send verification code to email
+                    send_email_verification(email, verification_code)
+                    await sio.emit("code-request-response",
+                                   {"retcode": 0, "message": "Code sent. Please check email for verification code."},
+                                   to=sid)
 
         else:
             await sio.emit("code-request-response", {"retcode": 3, "message": "Authentication failed."}, to=sid)
