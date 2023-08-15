@@ -17,6 +17,7 @@ from sqlalchemy import create_engine, Column, Integer, String, DateTime, Boolean
 from sqlalchemy.orm import sessionmaker, relationship
 
 Base = sqlalchemy.orm.declarative_base()
+from sqlalchemy import or_, and_
 
 
 class User(Base):
@@ -318,6 +319,60 @@ class Database:
                 """
                 user = self.session.query(User).filter_by(username=username).one_or_none()
                 return user.email if user else None
+
+    def advanced_user_search(self, query, interest_language=None, native_language=None):
+        try:
+            # Build the initial query
+            search_query = self.session.query(User)
+
+            # Apply filters based on input
+            if interest_language and native_language:
+                # Exclude users who have the exact same native and interest languages
+                search_query = search_query.filter(
+                    and_(
+                        User.interest_language == interest_language,
+                        User.native_language == native_language,
+                        User.interest_language != User.native_language
+                    )
+                )
+            else:
+                if interest_language:
+                    search_query = search_query.filter(User.interest_language == interest_language)
+
+                if native_language:
+                    search_query = search_query.filter(User.native_language == native_language)
+
+            if query:  # This will filter by username or fullname
+                search_query = search_query.filter(
+                    or_(User.username.like(f"%{query}%"), User.fullname.like(f"%{query}%")))
+
+            # Fetch and return results
+            results = search_query.all()
+
+            # Format the results to match the desired structure
+            formatted_results = []
+            for user in results:
+                data = {
+                    'username': user.username,
+                    'bio': user.bio,
+                    'iscompleted': user.iscompleted,
+                    'interest_language': user.interest_language,
+                    'fullname': user.fullname,
+                    'email': user.email,
+                    'profile_image': user.profile_image,
+                    'isverified': user.isverified,
+                    'native_language': user.native_language
+                }
+                formatted_results.append(data)
+
+            return formatted_results
+
+        except Exception as e:
+            print(f"Search error: {e}")
+            return []
+
+        finally:
+            self.session.close()
 # Server
 HOST = '172.20.10.2'
 # HOST = '192.168.1.11'
@@ -515,7 +570,10 @@ async def read_conversation(sid, data):
         await sio.emit("chat-read", {'retcode': 999, "message": "Unknown error occurred."}, to=sid)
 @sio.on("send-message")
 async def send_message(sid, data):
+    print('here')
+    print(data)
     try:
+        print('hereeee')
         username = data.get('username')
         token = data.get('token')
         chat_partner = data.get('partner')
@@ -536,8 +594,10 @@ async def send_message(sid, data):
             if chat_partner in users_sockets:
                 print('partner online')
                 chat_partner_sid = users_sockets[chat_partner]['sid']
-
-                acknowledged = await sio.call("live", {
+                print(chat_partner_sid)
+                acknowledged = False
+                try :
+                    acknowledged = await sio.call("live", {
                     'action': 'new_message',
                     'data' : {
                     'sender': username,
@@ -545,12 +605,13 @@ async def send_message(sid, data):
                     'timestamp': timestamp,
                     'id': message_id}
                 }, to=chat_partner_sid, timeout=2)  # Await an acknowledgment for up to 2 seconds
-
-                if acknowledged and acknowledged.get('status') == 'received':
-                    # Mark the message as read (isread = 2)
-                    db.mark_message_delivered(message_id)
-                    print('message marked as delivered')
-                await sio.emit("send-message-response", {'retcode': 1, "message": "Message processed."}, to=sid)
+                except Exception as e :
+                    print(e)
+                if acknowledged :
+                    if acknowledged.get('status') == 'received':
+                        db.mark_message_delivered(message_id)
+                        print('message marked as delivered')
+                        await sio.emit("send-message-response", {'retcode': 1, "message": "Message processed."}, to=sid)
 
 
             print('messege sent')
@@ -703,6 +764,24 @@ async def resend_verification_code(sid, data):
             await sio.emit("code-request-response", {"retcode": 3, "message": "Authentication failed."}, to=sid)
     except:
         await sio.emit("code-request-response", {'retcode': 999, "message": "Unknown error occurred."}, to=sid)
+
+
+@sio.on("advanced-users-search")
+async def advance_search_users(sid, data):
+    try:
+        query = data.get('query')  # This contains either the username or fullname
+        interest_language = data.get('interest_language')
+        native_language = data.get('native_language')
+
+        db = Database()
+        results = db.advanced_user_search(query, interest_language, native_language)
+        print(results)
+        await sio.emit("advanced-search-response", {'retcode': 0, "data": results}, to=sid)
+
+    except Exception as e:
+        print(f"Error in advance user search: {e}")
+        await sio.emit("advanced-search-response", {'retcode': 999, "message": "Unknown error occurred."}, to=sid)
+
 
 if __name__ == "__main__":
     web.run_app(app,host=HOST, port=PORT)
