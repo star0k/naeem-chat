@@ -11,7 +11,7 @@ class Configs:
         self.SECRET = secret
         self.HOST = host
         self.PORT = port
-        self.online_users = online_users
+        self.online_users = online_users if online_users is not None else {}
         self.SMTP_SERVER = "smtp.gmail.com"
         self.SMTP_PORT = 465
         self.GMAIL_ADDRESS = email
@@ -30,7 +30,7 @@ class Configs:
         return jwt.encode( {'user': username}, self.SECRET, algorithm='HS256')
 
     def is_authenticated(self, sid, token, username):
-        dic = {key for  key in self.online_users}
+        dic = self.online_users
         user_data = dic.get(username, {})
         return sid == user_data.get('sid') and token == user_data.get('token') and username == self.decode_token(token)
 
