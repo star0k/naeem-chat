@@ -19,17 +19,16 @@ def get_wlan_ip():
     except Exception as e:
         print(f"Could not get IP: {e}")
         return "127.0.0.1"  # Fallback to localhost
-print(get_wlan_ip())
 socket_service = socketio.AsyncServer(cors_allowed_origins="*")
 app = web.Application()
 socket_service.attach(app)
 online_users = {}
 get = Configs(
-    host=os.environ.get('HOST', 'localhost'),
+    host=os.environ.get('HOST', get_wlan_ip()),
     port=int(os.environ.get('PORT', 65432)),
-    secret=os.environ.get('SECRET', 'default_secret'),
-    email=os.environ.get('GMAIL_ADDRESS', 'default_email'),
-    password=os.environ.get('GMAIL_PASSWORD', 'default_password'),
+    secret=os.environ.get('SECRET', 'njdskfhjdkshfjkdshfjkdshfjkdshnfjksdhjkfhs'),
+    email=os.environ.get('GMAIL_ADDRESS', 'samerhabbal89@gmail.com'),
+    password=os.environ.get('GMAIL_PASSWORD', 'uwoletedyumokjxa'),
     online_users=online_users
 
 )
