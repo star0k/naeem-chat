@@ -18,7 +18,6 @@ get = Configs(
     secret=os.environ.get('SECRET', 'njdskfhjdkshfjkdshfjkdshfjkdshnfjksdhjkfhs'),
     email=os.environ.get('GMAIL_ADDRESS', 'samerhabbal89@gmail.com'),
     password=os.environ.get('GMAIL_PASSWORD', 'uwoletedyumokjxa'),
-    online_users=online_users
 
 )
 @socket_service.event

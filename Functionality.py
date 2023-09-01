@@ -7,11 +7,11 @@ import random
 from email.message import EmailMessage
 
 class Configs:
-    def __init__(self,host='',port='',secret='',email='',password='',online_users=''):
+    def __init__(self,host='',port='',secret='',email='',password=''):
         self.SECRET = secret
         self.HOST = host
         self.PORT = port
-        self.online_users = online_users if online_users is not None else {}
+        self.online_users = {}
         self.SMTP_SERVER = "smtp.gmail.com"
         self.SMTP_PORT = 465
         self.GMAIL_ADDRESS = email
