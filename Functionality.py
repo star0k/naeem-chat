@@ -1,12 +1,10 @@
-
-import sqlalchemy
+import socket
 import bcrypt
 import smtplib
 import jwt
 import re
 import random
 from email.message import EmailMessage
-from sqlalchemy.orm import sessionmaker
 
 class Configs:
     def __init__(self,host='',port='',secret='',email='',password='',online_users=''):
@@ -68,3 +66,13 @@ class Configs:
 
     def check_password(self,password: str, hashed: bytes) -> bool:
         return bcrypt.checkpw(password.encode(), hashed)
+def get_wlan_ip():
+    try:
+        # Getting the hostname
+        hostname = socket.gethostname()
+        # Getting the IP address using the hostname
+        local_ip = socket.gethostbyname(hostname)
+        return local_ip
+    except Exception as e:
+        print(f"Could not get IP: {e}")
+        return "127.0.0.1"  # Fallback to localhost

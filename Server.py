@@ -2,23 +2,12 @@ import datetime
 import bcrypt
 import socketio
 from aiohttp import web
-from Functionality import Configs
+from Functionality import Configs,get_wlan_ip
 from Database import Database
 import os
-import socket
 from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
-def get_wlan_ip():
-    try:
-        # Getting the hostname
-        hostname = socket.gethostname()
-        # Getting the IP address using the hostname
-        local_ip = socket.gethostbyname(hostname)
-        return local_ip
-    except Exception as e:
-        print(f"Could not get IP: {e}")
-        return "127.0.0.1"  # Fallback to localhost
 socket_service = socketio.AsyncServer(cors_allowed_origins="*")
 app = web.Application()
 socket_service.attach(app)
