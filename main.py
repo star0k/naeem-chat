@@ -1,7 +1,5 @@
 import datetime
 import os
-import sqlite3
-
 import sqlalchemy
 from cryptography.fernet import Fernet
 import bcrypt
@@ -14,7 +12,7 @@ from email.message import EmailMessage
 
 from aiohttp import web
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, Boolean, ForeignKey, func
-from sqlalchemy.orm import sessionmaker, relationship
+from sqlalchemy.orm import sessionmaker
 
 Base = sqlalchemy.orm.declarative_base()
 from sqlalchemy import or_, and_
@@ -136,7 +134,7 @@ class Database:
 
     def authenticate_user(self, username, password):
         user = self.session.query(User).filter_by(username=username).one_or_none()
-        return user and check_password(password, user.password)
+        return user and check_password(password, bytes(user.password))
 
     def fetch_chat_partners(self, username):
         """Fetch distinct chat partners for a given username using SQLAlchemy."""
@@ -156,8 +154,8 @@ class Database:
 
         return chat_partners
 
-    def store_message(self, sender, recipient, message, isread):
-        new_message = Message(sender=sender, recipient=recipient, message=message, isread=isread)
+    def store_message(self, sender, recipient, message, isread, isnotify):
+        new_message = Message(sender=sender, recipient=recipient, message=message, isread=isread , isnotify=isnotify)
         self.session.add(new_message)
         self.session.commit()
         return new_message.id
@@ -190,11 +188,12 @@ class Database:
             message.isread = 1
             self.session.commit()
 
-    def mark_message_read(self, message_id):
-        message = self.session.query(Message).filter_by(id=message_id).one_or_none()
-        if message:
-            message.isread > 0
-            self.session.commit()
+    def mark_message_read(self, chat_partner):
+        messages = self.session.query(Message).filter_by(sender=chat_partner).all()
+        if messages :
+            for message in messages :
+                message.isread = 2
+                self.session.commit()
 
     def register_user(self, username, hashed_password, email):
         new_user = User(username=username, password=hashed_password, email=email, isverified=False)
@@ -457,16 +456,7 @@ async def fetch_chats(sid, data):
             for partner in chat_partners:
                 partner_data = db.user_data(partner)
                 if not partner_data['profile_image']:
-                    first_letter = partner_data['fullname'][0].upper() if partner_data and 'fullname' in partner_data and \
-                                                                          partner_data['fullname'] else None
-
-                    # If we have an image for this letter, set it as profile image
-                    if first_letter and os.path.exists(f"user_images/{first_letter}.png"):
-                        partner_data['profile_image'] = f"{base_url}/{first_letter}.png"
-                    else:
-                        # Default image if something goes wrong
-                        partner_data['profile_image'] = 'https://cdn-icons-png.flaticon.com/512/6646/6646479.png'
-
+                    partner_data['profile_image'] = ""
                 partner_data['bio'] = 'mmm'
                 partner_data['interest_language'] = 'en'
                 partner_data['native_language'] = 'ar'
@@ -482,7 +472,6 @@ async def fetch_chats(sid, data):
     except Exception as e:
         print(f"Error: {e}")
         await sio.emit("chats-response", {'retcode': 999, "message": "Unknown error occurred."}, to=sid)
-
 @sio.on("user-online")
 async def user_online(sid, data):
     try:
@@ -554,7 +543,7 @@ async def read_conversation(sid, data):
         db = Database()
 
         if is_authenticated(sid, token, username):
-            db.mark_message_read(username)
+            db.mark_message_read(chat_partner)
             # If the chat_partner is online, inform them that their messages have been seen
             if chat_partner in users_sockets:
                 chat_partner_sid = users_sockets[chat_partner]['sid']
@@ -588,7 +577,7 @@ async def send_message(sid, data):
                 await sio.emit("send-message-response", {"retcode": 4, "message": "User Not Found."}, to=sid)
                 return
             # Store the message in the database
-            message_id = db.store_message(username,chat_partner,message_text,0)
+            message_id = db.store_message(username,chat_partner,message_text,0,0)
 
             # If the chat partner is online, send the message to them immediately
             if chat_partner in users_sockets:
@@ -601,6 +590,7 @@ async def send_message(sid, data):
                     'action': 'new_message',
                     'data' : {
                     'sender': username,
+                    'recipient' : chat_partner,
                     'message': message_text,
                     'timestamp': timestamp,
                     'id': message_id}
