@@ -34,12 +34,15 @@ get = Configs(
 )
 @socket_service.event
 async def connect(sid, environ):
+    global get
     username = next((user for user, details in online_users.items() if details['sid'] == sid), None)
     print(f"Connection Established with: {sid} user : {username if username else 'not auth yet'}")
     print(f'online users : {online_users}')
 
 @socket_service.event
 async def disconnect(sid):
+    global get
+
     # Identify the username associated with the sid
     user_to_remove = None
     for username, details in online_users.items():
@@ -57,6 +60,7 @@ async def disconnect(sid):
 
 @socket_service.on("signin")
 async def signin(sid, data):
+    global get
 
     try:
 
