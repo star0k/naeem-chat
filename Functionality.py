@@ -11,7 +11,7 @@ class Configs:
         self.SECRET = secret
         self.HOST = host
         self.PORT = port
-        self.usersockets = online_users
+        self.online_users = online_users
         self.SMTP_SERVER = "smtp.gmail.com"
         self.SMTP_PORT = 465
         self.GMAIL_ADDRESS = email
