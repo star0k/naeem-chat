@@ -9,7 +9,7 @@ from email.message import EmailMessage
 from sqlalchemy.orm import sessionmaker
 
 class Configs:
-    def __init__(self,host,port,secret,email,password,online_users):
+    def __init__(self,host='',port='',secret='',email='',password='',online_users=''):
         self.SECRET = secret
         self.HOST = host
         self.PORT = port
@@ -29,7 +29,7 @@ class Configs:
 
     def generate_token(self, username):
 
-        return jwt.encode(self, {'user': username}, self.SECRET, algorithm='HS256')
+        return jwt.encode( {'user': username}, self.SECRET, algorithm='HS256')
 
     def is_authenticated(self, sid, token, username):
         user_data = self.users_sockets.get(username, {})
@@ -62,9 +62,9 @@ class Configs:
         except Exception as e:
             print(f"Error while sending email: {e}")
 
-    def hash_password(password: str) -> bytes:
+    def hash_password(self,password: str) -> bytes:
         salt = bcrypt.gensalt()
         return bcrypt.hashpw(password.encode(), salt)
 
-    def check_password(password: str, hashed: bytes) -> bool:
+    def check_password(self,password: str, hashed: bytes) -> bool:
         return bcrypt.checkpw(password.encode(), hashed)

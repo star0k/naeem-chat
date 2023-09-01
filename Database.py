@@ -2,7 +2,8 @@ import sqlalchemy
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import or_, and_
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, Boolean, ForeignKey, func
-
+from Functionality import Configs
+get = Configs()
 Base = sqlalchemy.orm.declarative_base()
 
 Base = sqlalchemy.orm.declarative_base()
@@ -44,7 +45,7 @@ class Database :
 
     def authenticate_user(self, username, password):
         user = self.session.query(User).filter_by(username=username).one_or_none()
-        return user and get.check_password(password, bytes(user.password))
+        return user and get.check_password(password, user.password)
 
     def fetch_chat_partners(self, username):
         """Fetch distinct chat partners for a given username using SQLAlchemy."""

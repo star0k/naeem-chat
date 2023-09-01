@@ -61,7 +61,7 @@ async def disconnect(sid):
 @socket_service.on("signin")
 async def signin(sid, data):
     global get
-
+    print(get.PORT)
     try:
 
         print('insignin')
