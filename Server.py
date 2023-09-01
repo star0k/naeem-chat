@@ -23,9 +23,9 @@ get = Configs(
 @socket_service.event
 async def connect(sid, environ):
     global get
-    username = next((user for user, details in online_users.items() if details['sid'] == sid), None)
+    username = next((user for user, details in get.online_users.items() if details['sid'] == sid), None)
     print(f"Connection Established with: {sid} user : {username if username else 'not auth yet'}")
-    print(f'online users : {online_users}')
+    print(f'online users : {get.online_users}')
 
 @socket_service.event
 async def disconnect(sid):
@@ -33,18 +33,18 @@ async def disconnect(sid):
 
     # Identify the username associated with the sid
     user_to_remove = None
-    for username, details in online_users.items():
+    for username, details in get.online_users.items():
         if details['sid'] == sid:
             user_to_remove = username
             break
 
     # Remove the identified user from the dictionary
-    username = next((user for user, details in online_users.items() if details['sid'] == sid), None)
+    username = next((user for user, details in get.online_users.items() if details['sid'] == sid), None)
     print(f"Connection closed with: {sid} user : {username if username else 'not auth yet'}")
     if user_to_remove:
-        del online_users[user_to_remove]
+        del get.online_users[user_to_remove]
 
-    print(f'online users : {list(online_users.keys())}')
+    print(f'online users : {list(get.online_users.keys())}')
 
 @socket_service.on("signin")
 async def signin(sid, data):
@@ -60,7 +60,7 @@ async def signin(sid, data):
         if db.authenticate_user(username, password):  # Assuming `authenticate_user` checks the hashed password
             print('pass2')
             token = get.generate_token(username)
-            online_users[username] = {'sid': sid, 'token': token}
+            get.online_users[username] = {'sid': sid, 'token': token}
             print('send data')
 
             user_data_result = db.user_data(username)
@@ -75,7 +75,7 @@ async def signin(sid, data):
     except Exception as n:
         print(f'error {n}')
         await socket_service.emit("signin-response", {'retcode': 999, "message": "Unknown error occurred."}, to=sid)
-    print(f'online users : {list(online_users.keys())}')
+    print(f'online users : {list(get.online_users.keys())}')
 
 
 @socket_service.on("fetch-chats")
@@ -85,7 +85,7 @@ async def fetch_chats(sid, data):
         token = data.get('token')
         db = Database()
 
-        if get.get.is_authenticated(sid, token, username):
+        if get.is_authenticated(sid, token, username):
 
             # Use the new fetch_chat_partners method
             chat_partners = db.fetch_chat_partners(username)
@@ -122,7 +122,7 @@ async def user_online(sid, data):
         db = Database()
 
         if get.is_authenticated(sid, token, username):
-            if partner in online_users :
+            if partner in get.online_users :
                 await socket_service.emit("online-response", {'retcode': 0, "messages": 'online'}, to=sid)
         else:
             await socket_service.emit("online-response", {'retcode': 1, "messages": 'offline'}, to=sid)
@@ -139,7 +139,7 @@ async def fetch_messages(sid, data):
         date = data.get('date') if data.get('date') else "1970-01-01 00:00:00"
         db = Database()
 
-        user_data = online_users.get(username, {})
+        user_data = get.online_users.get(username, {})
         if get.is_authenticated(sid, token, username):
             messages = db.fetch_messages(username, date)
             # List to keep track of senders whose messages were marked as delivered
@@ -160,9 +160,9 @@ async def fetch_messages(sid, data):
                     # If the sender is online and not yet notified, inform them that their message has been delivered
                     try:
                         sender = message["sender"]
-                        if sender not in senders_notified and sender in online_users:
+                        if sender not in senders_notified and sender in get.online_users:
                             senders_notified.add(sender)
-                            sender_sid = online_users[sender]['sid']
+                            sender_sid = get.online_users[sender]['sid']
                             await socket_service.emit("live", {
                                 'action': 'delivered',
                                 'delivered_to': username,
@@ -186,8 +186,8 @@ async def read_conversation(sid, data):
         if get.is_authenticated(sid, token, username):
             db.mark_message_read(chat_partner)
             # If the chat_partner is online, inform them that their messages have been seen
-            if chat_partner in online_users:
-                chat_partner_sid = online_users[chat_partner]['sid']
+            if chat_partner in get.online_users:
+                chat_partner_sid = get.online_users[chat_partner]['sid']
                 await socket_service.emit("live", {
                     'action': 'seen',
                     'seen_by': username,
@@ -221,9 +221,9 @@ async def send_message(sid, data):
             message_id = db.store_message(username,chat_partner,message_text,0,0)
 
             # If the chat partner is online, send the message to them immediately
-            if chat_partner in online_users:
+            if chat_partner in get.online_users:
                 print('partner online')
-                chat_partner_sid = online_users[chat_partner]['sid']
+                chat_partner_sid = get.online_users[chat_partner]['sid']
                 print(chat_partner_sid)
                 acknowledged = False
                 try :
