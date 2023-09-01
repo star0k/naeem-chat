@@ -30,7 +30,8 @@ class Configs:
         return jwt.encode( {'user': username}, self.SECRET, algorithm='HS256')
 
     def is_authenticated(self, sid, token, username):
-        user_data = self.online_users.get(username, {})
+        dic = {key for  key in self.online_users}
+        user_data = dic.get(username, {})
         return sid == user_data.get('sid') and token == user_data.get('token') and username == self.decode_token(token)
 
     def decode_token(self, token):
