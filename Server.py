@@ -1,15 +1,18 @@
 import datetime
 import bcrypt
 import socketio
+import base64
 from aiohttp import web
 from Functionality import Configs,get_wlan_ip
 from Database import Database
-import os
 from dotenv import load_dotenv
+import os
+from werkzeug.utils import secure_filename
 # Load environment variables from .env file
 load_dotenv()
 socket_service = socketio.AsyncServer(cors_allowed_origins="*")
 app = web.Application()
+app.router.add_static('/profile_images/', path='profile_images', name='profile_images')
 socket_service.attach(app)
 online_users = {}
 get = Configs(
@@ -65,6 +68,11 @@ async def signin(sid, data):
 
             user_data_result = db.user_data(username)
             print(user_data_result)
+            if user_data_result['profile_image']:
+                user_data_result['profile_image'] = f"http://{get.HOST}:{get.PORT}/{user_data_result['profile_image']}"
+
+            else:
+                user_data_result['profile_image'] = ""
             await socket_service.emit("signin-response", {'retcode': 0, 'token': token, "data": user_data_result}, to=sid)
 
             print('data sent')
@@ -96,8 +104,12 @@ async def fetch_chats(sid, data):
 
             for partner in chat_partners:
                 partner_data = db.user_data(partner)
-                if not partner_data['profile_image']:
+                if  partner_data['profile_image']:
+                    partner_data['profile_image'] = f"http://{get.HOST}:{get.PORT}/{partner_data['profile_image']}"
+
+                else:
                     partner_data['profile_image'] = ""
+
                 partner_data['bio'] = 'mmm'
                 partner_data['interest_language'] = 'en'
                 partner_data['native_language'] = 'ar'
@@ -142,7 +154,7 @@ async def fetch_messages(sid, data):
         user_data = get.online_users.get(username, {})
         if get.is_authenticated(sid, token, username):
             messages = db.fetch_messages(username, date)
-            # List to keep track of senders whose messages were marked as delivered
+
             senders_notified = set()
             await socket_service.emit("messages", {'retcode': 0, "data": messages}, to=sid)
             print('sent data')
@@ -238,7 +250,7 @@ async def send_message(sid, data):
                 }, to=chat_partner_sid, timeout=2)  # Await an acknowledgment for up to 2 seconds
                 except Exception as e :
                     print(e)
-                if acknowledged :
+                if acknowledged == True :
                     if acknowledged.get('status') == 'received':
                         db.mark_message_delivered(message_id)
                         print('message marked as delivered')
@@ -396,7 +408,6 @@ async def resend_verification_code(sid, data):
     except:
         await socket_service.emit("code-request-response", {'retcode': 999, "message": "Unknown error occurred."}, to=sid)
 
-
 @socket_service.on("advanced-users-search")
 async def advance_search_users(sid, data):
     try:
@@ -413,6 +424,45 @@ async def advance_search_users(sid, data):
         print(f"Error in advance user search: {e}")
         await socket_service.emit("advanced-search-response", {'retcode': 999, "message": "Unknown error occurred."}, to=sid)
 
+
+@socket_service.on("upload-profile-image")
+async def upload_profile_image(sid, data):
+    try:
+        username = data.get('username')
+        token = data.get('token')
+        file_data = data.get('encoded_image')  # Make sure to use the correct key
+        filename = data.get('filename')  # You can set a default name
+
+        if not get.is_authenticated(sid, token, username):
+            await socket_service.emit("upload-image-response", {"retcode": 3, "message": "Authentication failed."}, to=sid)
+            return
+
+        directory = "profile_images"  # the directory where you want to save the file
+        if not os.path.exists(directory):
+            os.makedirs(directory)  # this line will create the directory if it doesn't exist
+
+        print(data['filename'])
+        if file_data and get.allowed_file(filename):
+            filename = secure_filename(data['filename'])
+
+            # Decode and save the image
+            image_path = os.path.join('profile_images', f"{username}.{filename.rsplit('.', 1)[1].lower()}")
+
+            with open(image_path, "wb") as fh:
+                fh.write(base64.b64decode(file_data))
+
+            # Update the user data in your database to point to this file.
+            db = Database()
+            db.update_user_image(username, image_path)
+
+            await socket_service.emit("upload-image-response", {"retcode": 0, "message": "Image uploaded successfully."}, to=sid)
+
+        else:
+            await socket_service.emit("upload-image-response", {"retcode": 1, "message": f"Invalid file format.{filename}"}, to=sid)
+
+    except Exception as e:
+        print(f"Error: {e}")
+        await socket_service.emit("upload-image-response", {"retcode": 999, "message": "Unknown error occurred."}, to=sid)
 
 if __name__ == "__main__":
     web.run_app(app,host=get.HOST, port=get.PORT)

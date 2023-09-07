@@ -3,6 +3,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy import or_, and_
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, Boolean, ForeignKey, func
 from Functionality import Configs
+import os
 get = Configs()
 Base = sqlalchemy.orm.declarative_base()
 
@@ -283,3 +284,28 @@ class Database :
 
         finally:
             self.session.close()
+
+    def update_user_image(self, username, image_path):
+        """
+        Upload a profile image for the user with the given username.
+
+        :param username: The username of the user
+        :param image_path: The file path of the image to be uploaded
+        """
+        # Check if the image file exists
+        if not os.path.exists(image_path):
+            print(f"The file {image_path} does not exist.")
+            return False
+
+        # Query for the user
+        user = self.session.query(User).filter_by(username=username).one_or_none()
+
+        # If the user exists, update the profile_image field
+        if user:
+            user.profile_image = image_path
+            self.session.commit()
+            print(f"Successfully updated the profile image for {username}.")
+            return True
+        else:
+            print(f"User with username {username} does not exist.")
+            return False

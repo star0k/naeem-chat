@@ -1,10 +1,11 @@
 import socketio
 import json
+import base64
 import requests
 
 HOST = '172.20.10.2'
 HOST = '192.168.1.9'
-# HOST = '127.0.0.1'
+HOST ="192.168.3.147"
 PORT = 65432
 sio = socketio.Client()
 
@@ -24,13 +25,23 @@ def on_live_event(data):
     if data.get('action') == 'new_message':
         print(f"New message from {data['sender']} at {data['timestamp']}: {data['message_text']}")
 
+@sio.on("messages")
+def on_live_event(data):
+    print(f"Received live event data: {json.dumps(data)}")
+    # Handle the received data, if needed
 
 @sio.on("signin-response")
 def on_signin_response(data):
     global current_token
     print(f"Received signin-response: {json.dumps(data)}")
     if 'token' in data:
-        current_token = data['token']
+        current_token = data['token']\
+
+@sio.on("upload-image-response")
+def on_signin_response(data):
+    global current_token
+    print(f"Received image-response: {json.dumps(data)}")
+
 
 
 # ... similarly for other events
@@ -43,6 +54,25 @@ def send_signin():
     current_username = username if username else 'user1'
     sio.emit("signin", {"username": username if username else 'user1', "password": password if password else 'pass'})
 
+def upload_profile_image():
+    global current_username, current_token
+
+    # Ensure the user is authenticated (i.e., has a token) before attempting to upload an image
+    if not current_token:
+        print("You need to sign in first!")
+        return
+
+    # Convert image to Base64
+    with open("test.jpeg", "rb") as image_file:
+        encoded_image = base64.b64encode(image_file.read()).decode()
+
+    # Emit the upload profile image event to the server
+    sio.emit("upload-profile-image", {
+        "username": current_username,
+        "token": current_token,
+        "encoded_image": encoded_image,
+        "filename": "test.jpeg"  # Add filename
+    })
 
 def send_signup():
     username = input("Enter username: ")
@@ -75,12 +105,39 @@ def send_message():
         "message": content
     })
 # ... add other command functions
+def fetch():
+    global current_username, current_token
+
+    # Ensure the user is authenticated (i.e., has a token) before attempting to send a message
+    if not current_token:
+        print("You need to sign in first!")
+        return
+
+def read():
+    global current_username, current_token
+
+    # Ensure the user is authenticated (i.e., has a token) before attempting to send a message
+    if not current_token:
+        print("You need to sign in first!")
+        return
+
+    # Emit the message event to the server
+    sio.emit("read-chat", {
+        "username": current_username,
+        "token": current_token,
+        "partner": "n.najjar10",
+
+    })
+# ... add other command functions
 
 def main():
     commands = {
         "signin": send_signin,
         "signup": send_signup,
         "send-message": send_message,
+        'f' : fetch,
+        'r' : read,
+        "u": upload_profile_image,
 
         # ... add other commands
     }

@@ -6,6 +6,12 @@ import re
 import random
 from email.message import EmailMessage
 
+
+
+
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
+
+
 class Configs:
     def __init__(self,host='',port='',secret='',email='',password=''):
         self.SECRET = secret
@@ -24,6 +30,9 @@ class Configs:
     def generate_verification_code(self) -> str:
         """Generate a random 6-digit verification code."""
         return ''.join(random.choices('0123456789', k=6))
+
+    def allowed_file(self,filename):
+        return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
     def generate_token(self, username):
 
