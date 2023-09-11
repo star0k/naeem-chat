@@ -5,7 +5,7 @@ import requests
 
 HOST = '172.20.10.2'
 HOST = '192.168.1.9'
-HOST ="192.168.3.147"
+HOST ="62.72.18.17"
 PORT = 65432
 sio = socketio.Client()
 
