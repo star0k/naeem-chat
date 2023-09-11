@@ -254,11 +254,11 @@ async def send_message(sid, data):
                     if acknowledged.get('status') == 'received':
                         db.mark_message_delivered(message_id)
                         print('message marked as delivered')
-                        await socket_service.emit("send-message-response", {'retcode': 1, "message": "Message processed."}, to=sid)
+                        await socket_service.emit("send-message-response", {'retcode': 1,'time':timestamp, "message": "Message processed."}, to=sid)
 
 
             print('messege sent')
-            await socket_service.emit("send-message-response", {'retcode': 0, 'id':message_id, "message": "Message sent successfully."}, to=sid)
+            await socket_service.emit("send-message-response", {'retcode': 0,'time':timestamp,  'id':message_id, "message": "Message sent successfully."}, to=sid)
         else:
             print('auth failed')
 
@@ -374,6 +374,9 @@ async def change_password(sid, data):
                 await socket_service.emit("verification-response", {"retcode": 1, "message": "Wrong "}, to=sid)
 
         else:
+            if db.change_password(username, newpassword,oldpassword, verification_code) :
+                await socket_service.emit("change-password-response", {"retcode": 0, "message": "passwor dchanged"}, to=sid)
+
             print('auth error')
             await socket_service.emit("verification-response", {"retcode": 3, "message": "Authentication failed."}, to=sid)
     except:
@@ -382,29 +385,24 @@ async def change_password(sid, data):
 async def resend_verification_code(sid, data):
     try:
         username = data.get('username')
-        token = data.get('token')
         db = Database()
 
-        if get.is_authenticated(sid, token, username):
 
-            verification_code = get.generate_verification_code()
+        verification_code = get.generate_verification_code()
 
-            # Set verification code using Database method
-            if db.set_verification_code(username, verification_code):
+        # Set verification code using Database method
+        if db.set_verification_code(username, verification_code):
 
-                # Fetch email using Database method
-                email = db.get_email_by_username(username)
-                if email:
-                    print(email)
+            # Fetch email using Database method
+            email = db.get_email_by_username(username)
+            if email:
+                print(email)
 
-                    # Send verification code to email
-                    get.send_email_verification(email, verification_code)
-                    await socket_service.emit("code-request-response",
-                                              {"retcode": 0, "message": "Code sent. Please check email for verification code."},
-                                              to=sid)
-
-        else:
-            await socket_service.emit("code-request-response", {"retcode": 3, "message": "Authentication failed."}, to=sid)
+                # Send verification code to email
+                get.send_email_verification(email, verification_code)
+                await socket_service.emit("code-request-response",
+                                          {"retcode": 0, "message": "Code sent. Please check email for verification code."},
+                                          to=sid)
     except:
         await socket_service.emit("code-request-response", {'retcode': 999, "message": "Unknown error occurred."}, to=sid)
 
@@ -423,8 +421,74 @@ async def advance_search_users(sid, data):
     except Exception as e:
         print(f"Error in advance user search: {e}")
         await socket_service.emit("advanced-search-response", {'retcode': 999, "message": "Unknown error occurred."}, to=sid)
+@socket_service.on("call-request")
+async def handle_call_request(sid, data):
+    try:
+        username = data.get('username')
+        token = data.get('token')
+        partner = data.get('partner')
+        call_link = data.get('call_link')
+        call_type = data.get('call_type')
+        channel = data.get('channel')
 
+        if not get.is_authenticated(sid, token, username):
+            await socket_service.emit("call-response", {"retcode": 3, "message": "Authentication failed."}, to=sid)
+            return
 
+        partner_sid = get.online_users[partner]
+        if partner_sid :
+            # Send the call info to the partner via a 'live' event
+            await socket_service.emit("live", {
+                'action': 'incoming-call',
+                'link': call_link,
+                'type': call_type,
+                'channel': channel,
+                'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            }, to=partner_sid)
+            await socket_service.emit("call-response", {"retcode": 0, "message": "Call initiated."}, to=sid)
+
+        # Acknowledge that the call request has been initiated
+        await socket_service.emit("call-response", {"retcode":1, "message": "User Offline"}, to=sid)
+
+    except Exception as e:
+        print(f"Error: {e}")
+        await socket_service.emit("call-response", {"retcode": 999, "message": "Unknown error occurred."}, to=sid)
+
+@socket_service.on("update-user-info")
+async def handle_edit_user_info(sid, data):
+    try:
+        username = data.get('username')
+        token = data.get('token')
+
+        # Make sure the user is authenticated before proceeding
+        if not get.is_authenticated(sid, token, username):
+            await socket_service.emit("update-user-info-response", {"retcode": 3, "message": "Authentication failed."}, to=sid)
+            return
+
+        db = Database()  # Initialize your database connection here
+
+        # The user wants to update these fields
+        updated_info = {
+            "fullname": data.get("fullname"),
+            "email": data.get("email"),
+            "bio": data.get("bio"),
+            "native_language": data.get("native_language"),
+            "interest_language": data.get("interest_language"),
+            # Add other fields you want to allow users to edit
+        }
+
+        # Filter out None values, i.e., only update the fields that were provided
+        updated_info = {key: value for key, value in updated_info.items() if value is not None}
+
+        if updated_info:  # Only proceed if there's something to update
+            db.update_user_info(username, updated_info)  # Replace this with the actual function that updates the database
+            await socket_service.emit("update-user-info-response", {"retcode": 0, "message": "Information updated successfully."}, to=sid)
+        else:
+            await socket_service.emit("update-user-info-response", {"retcode": 2, "message": "No fields to update."}, to=sid)
+
+    except Exception as e:
+        print(f"Error: {e}")
+        await socket_service.emit("update-user-info-response", {"retcode": 999, "message": "Unknown error occurred."}, to=sid)
 @socket_service.on("upload-profile-image")
 async def upload_profile_image(sid, data):
     try:
